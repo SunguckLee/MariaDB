@@ -2967,6 +2967,8 @@ case SQLCOM_PREPARE:
       
       select_lex->options|= SELECT_NO_UNLOCK;
       unit->set_limit(select_lex);
+      /* set_limit_matched() must be called after set_limit() */
+      unit->set_limit_matched(select_lex);
 
       /*
         Disable non-empty MERGE tables with CREATE...SELECT. Too
@@ -3322,6 +3324,8 @@ end_with_restore_list:
 
     DBUG_ASSERT(select_lex->offset_limit == 0);
     unit->set_limit(select_lex);
+    /* set_limit_matched() must be called after set_limit() */
+    unit->set_limit_matched(select_lex);
     MYSQL_UPDATE_START(thd->query());
     res= (up_result= mysql_update(thd, all_tables,
                                   select_lex->item_list,
@@ -3533,6 +3537,8 @@ end_with_restore_list:
     select_lex->options|= SELECT_NO_UNLOCK;
 
     unit->set_limit(select_lex);
+    /* set_limit_matched() must be called after set_limit() */
+    unit->set_limit_matched(select_lex);
 
     if (!(res= open_and_lock_tables(thd, all_tables, TRUE, 0)))
     {
@@ -3601,6 +3607,8 @@ end_with_restore_list:
       break;
     DBUG_ASSERT(select_lex->offset_limit == 0);
     unit->set_limit(select_lex);
+    /* set_limit_matched() must be called after set_limit() */
+    unit->set_limit_matched(select_lex);
 
     MYSQL_DELETE_START(thd->query());
     if (!(sel_result= lex->result) && !(sel_result= new select_send()))
@@ -4397,6 +4405,8 @@ end_with_restore_list:
       able to open it (with SQLCOM_HA_OPEN) in the first place.
     */
     unit->set_limit(select_lex);
+    /* set_limit_matched() must be called after set_limit() */
+    unit->set_limit_matched(select_lex);
     res= mysql_ha_read(thd, first_table, lex->ha_read_mode, lex->ident.str,
                        lex->insert_list, lex->ha_rkey_mode, select_lex->where,
                        unit->select_limit_cnt, unit->offset_limit_cnt);
@@ -6184,6 +6194,7 @@ void THD::reset_for_next_command()
   thd->get_stmt_da()->reset_for_next_command();
   thd->rand_used= 0;
   thd->m_sent_row_count= thd->m_examined_row_count= 0;
+  thd->m_matched_row_count= 0;
   thd->accessed_rows_and_keys= 0;
 
   thd->query_plan_flags= QPLAN_INIT;
@@ -7154,6 +7165,7 @@ bool st_select_lex_unit::add_fake_select_lex(THD *thd_arg)
   fake_select_lex->make_empty_select();
   fake_select_lex->linkage= GLOBAL_OPTIONS_TYPE;
   fake_select_lex->select_limit= 0;
+  fake_select_lex->select_limit_matched = 0;
 
   fake_select_lex->context.outer_context=first_sl->context.outer_context;
   /* allow item list resolving in fake select for ORDER BY */

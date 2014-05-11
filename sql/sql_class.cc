@@ -873,6 +873,7 @@ THD::THD()
    first_successful_insert_id_in_cur_stmt(0),
    stmt_depends_on_first_successful_insert_id_in_prev_stmt(FALSE),
    m_examined_row_count(0),
+   m_matched_row_count(0),
    accessed_rows_and_keys(0),
    m_statement_psi(NULL),
    m_idle_psi(NULL),
@@ -4387,6 +4388,7 @@ void THD::reset_sub_statement_state(Sub_statement_state *backup,
   backup->query_plan_flags= query_plan_flags;
   backup->limit_found_rows= limit_found_rows;
   backup->examined_row_count= m_examined_row_count;
+  backup->matched_row_count= m_matched_row_count;
   backup->sent_row_count=   m_sent_row_count;
   backup->cuted_fields=     cuted_fields;
   backup->client_capabilities= client_capabilities;
@@ -4411,6 +4413,7 @@ void THD::reset_sub_statement_state(Sub_statement_state *backup,
   client_capabilities &= ~CLIENT_MULTI_RESULTS;
   in_sub_stmt|= new_state;
   m_examined_row_count= 0;
+  m_matched_row_count=0;
   m_sent_row_count= 0;
   cuted_fields= 0;
   transaction.savepoints= 0;
@@ -4477,6 +4480,7 @@ void THD::restore_sub_statement_state(Sub_statement_state *backup)
     total complexity of the query
   */
   inc_examined_row_count(backup->examined_row_count);
+  set_matched_row_count(backup->matched_row_count);
   cuted_fields+=       backup->cuted_fields;
   DBUG_VOID_RETURN;
 }
@@ -4501,6 +4505,11 @@ void THD::set_examined_row_count(ha_rows count)
   MYSQL_SET_STATEMENT_ROWS_EXAMINED(m_statement_psi, m_examined_row_count);
 }
 
+void THD::set_matched_row_count(ha_rows count)
+{
+  m_matched_row_count= count;
+}
+
 void THD::inc_sent_row_count(ha_rows count)
 {
   m_sent_row_count+= count;
@@ -4511,6 +4520,11 @@ void THD::inc_examined_row_count(ha_rows count)
 {
   m_examined_row_count+= count;
   MYSQL_SET_STATEMENT_ROWS_EXAMINED(m_statement_psi, m_examined_row_count);
+}
+
+void THD::inc_matched_row_count(ha_rows count)
+{
+  m_matched_row_count+= count;
 }
 
 void THD::inc_status_created_tmp_disk_tables()

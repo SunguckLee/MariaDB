@@ -641,6 +641,7 @@ public:
   bool change_result(select_result_interceptor *result,
                      select_result_interceptor *old_result);
   void set_limit(st_select_lex *values);
+  void set_limit_matched(st_select_lex *sl);
   void set_thd(THD *thd_arg) { thd= thd_arg; }
   inline bool is_union (); 
 
@@ -733,6 +734,7 @@ public:
   SQL_I_List<ORDER> order_list;   /* ORDER clause */
   SQL_I_List<ORDER> gorder_list;
   Item *select_limit, *offset_limit;  /* LIMIT clause parameters */
+  Item *select_limit_matched; /* for LIMIT ROWS MATCHED n */
   // Arrays of pointers to top elements of all_fields list
   Item **ref_pointer_array;
   size_t ref_pointer_array_size; // Number of elements in array.

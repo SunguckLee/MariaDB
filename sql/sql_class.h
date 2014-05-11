@@ -1334,6 +1334,7 @@ public:
   Discrete_intervals_list auto_inc_intervals_forced;
   ulonglong limit_found_rows;
   ha_rows    cuted_fields, sent_row_count, examined_row_count;
+  ha_rows matched_row_count;
   ulong client_capabilities;
   ulong query_plan_flags; 
   uint in_sub_stmt;
@@ -2429,6 +2430,7 @@ private:
     filesort() before reading it for e.g. update.
   */
   ha_rows    m_examined_row_count;
+  ha_rows m_matched_row_count;
 
 public:
   ha_rows get_sent_row_count() const
@@ -2437,11 +2439,19 @@ public:
   ha_rows get_examined_row_count() const
   { return m_examined_row_count; }
 
+  ha_rows get_matched_row_count() const
+  { return m_matched_row_count; }
+
+  ha_rows get_select_limit_count() const
+  { return (lex->current_select->select_limit_matched) ? lex->current_select->select_limit_matched->val_uint() : 999999999999L; }
+
   void set_sent_row_count(ha_rows count);
   void set_examined_row_count(ha_rows count);
+  void set_matched_row_count(ha_rows count);
 
   void inc_sent_row_count(ha_rows count);
   void inc_examined_row_count(ha_rows count);
+  void inc_matched_row_count(ha_rows count);
 
   void inc_status_created_tmp_disk_tables();
   void inc_status_created_tmp_files();
@@ -2472,6 +2482,12 @@ public:
   {
     if (++accessed_rows_and_keys > lex->limit_rows_examined_cnt)
       killed= ABORT_QUERY;
+  }
+
+  int check_limit_rows_matched()
+  {
+    return !(lex->current_select->select_limit_matched
+             && m_matched_row_count >= lex->current_select->select_limit_matched->val_uint());
   }
 
   USER_CONN *user_connect;

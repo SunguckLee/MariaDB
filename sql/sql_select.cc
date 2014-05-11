@@ -2455,6 +2455,7 @@ void JOIN::exec_inner()
     /* Single select (without union) always returns 0 or 1 row */
     thd->limit_found_rows= send_records;
     thd->set_examined_row_count(0);
+    thd->set_matched_row_count(0);
     DBUG_VOID_RETURN;
   }
   /*
@@ -3289,6 +3290,8 @@ mysql_select(THD *thd, Item ***rref_pointer_array,
 
   if (thd->is_error())
     goto err;
+
+  thd->set_matched_row_count(0);
 
   join->exec();
 
@@ -17138,6 +17141,7 @@ do_select(JOIN *join,List<Item> *fields,TABLE *table,Procedure *procedure)
 
   if (table)
   {
+    join->thd->set_matched_row_count(0); // Init m_matched_row_count, matched_row_count check is already done in sub_select()
     int tmp, new_errno= 0;
     if ((tmp=table->file->extra(HA_EXTRA_NO_CACHE)))
     {
@@ -17465,6 +17469,14 @@ sub_select(JOIN *join,JOIN_TAB *join_tab,bool end_of_records)
     if (!error && join_tab->keep_current_rowid)
       join_tab->table->file->position(join_tab->table->record[0]);    
     rc= evaluate_join_record(join, join_tab, error);
+
+    DBUG_PRINT("enter", ("check_limit_rows_matched  select_limit_matched : %llu, m_matched_row_count : %llu", join->thd->get_select_limit_count(), join->thd->get_matched_row_count()));
+    if(!join->thd->check_limit_rows_matched()){
+      if(rc == NESTED_LOOP_OK && join->return_tab >= join_tab){
+        rc = NESTED_LOOP_NO_MORE_ROWS;  // Stop search
+        DBUG_PRINT("enter", ("sub_select matched_row_count greater than limit_matched_row_cnt: thd->m_matched_row_count is reset to 0"));
+      }
+    }
   }
 
   /* 
@@ -17504,6 +17516,12 @@ sub_select(JOIN *join,JOIN_TAB *join_tab,bool end_of_records)
       join_tab->table->file->position(join_tab->table->record[0]);
     
     rc= evaluate_join_record(join, join_tab, error);
+
+    DBUG_PRINT("enter", ("check_limit_rows_matched  select_limit_matched : %llu, m_matched_row_count : %llu", join->thd->get_select_limit_count(), join->thd->get_matched_row_count()));
+    if(!join->thd->check_limit_rows_matched()){
+      DBUG_PRINT("enter", ("sub_select matched_row_count greater than limit_matched_row_cnt: thd->m_matched_row_count is reset to 0"));
+      rc = NESTED_LOOP_NO_MORE_ROWS; // Stop search
+    }
   }
 
   if (rc == NESTED_LOOP_NO_MORE_ROWS &&
@@ -17690,6 +17708,13 @@ evaluate_join_record(JOIN *join, JOIN_TAB *join_tab,
       join->thd->get_stmt_da()->inc_current_row_for_warning();
       if (rc != NESTED_LOOP_OK && rc != NESTED_LOOP_NO_MORE_ROWS)
         DBUG_RETURN(rc);
+
+      if(&join->join_tab[join->top_join_tab_count - 1] == join_tab){
+    	  // If this is the last join table
+    	  join->thd->inc_matched_row_count(1);
+    	  DBUG_PRINT("enter", ("evaluate_join_record matched_row_count: %llu", join->thd->get_matched_row_count()));
+      }
+
       if (return_tab < join->return_tab)
         join->return_tab= return_tab;
 

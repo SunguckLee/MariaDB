@@ -466,6 +466,8 @@ bool PROFILING::show_profiles()
   Protocol *protocol= thd->protocol;
 
   unit->set_limit(sel);
+  /* set_limit_matched() must be called after set_limit() */
+  unit->set_limit_matched(sel);
 
   void *iterator;
   for (iterator= history.new_iterator();

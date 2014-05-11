@@ -587,6 +587,7 @@ bool st_select_lex_unit::optimize()
       else
       {
         set_limit(sl);
+        set_limit_matched(sl); // for LIMIT ROWS MATCHED n
 	if (sl == global_parameters || describe)
 	{
 	  offset_limit_cnt= 0;
@@ -663,6 +664,7 @@ bool st_select_lex_unit::exec()
 
       {
         set_limit(sl);
+        set_limit_matched(sl); // for LIMIT ROWS MATCHED n
 	if (sl == global_parameters || describe)
 	{
 	  offset_limit_cnt= 0;

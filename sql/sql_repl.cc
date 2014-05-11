@@ -3659,6 +3659,8 @@ bool mysql_show_binlog_events(THD* thd)
     }
 
     unit->set_limit(thd->lex->current_select);
+    /* set_limit_matched() must be called after set_limit() */
+    unit->set_limit_matched(thd->lex->current_select);
     limit_start= unit->offset_limit_cnt;
     limit_end= unit->select_limit_cnt;
 

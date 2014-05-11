@@ -893,6 +893,7 @@ bool mysql_derived_fill(THD *thd, LEX *lex, TABLE_LIST *derived)
   SELECT_LEX *first_select= unit->first_select();
   select_union *derived_result= derived->derived_result;
   SELECT_LEX *save_current_select= lex->current_select;
+  // ha_rows save_matched_row_count = thd->get_matched_row_count();
   if (unit->is_union())
   {
     // execute union without clean up
@@ -928,6 +929,7 @@ bool mysql_derived_fill(THD *thd, LEX *lex, TABLE_LIST *derived)
   if (res || !lex->describe) 
     unit->cleanup();
   lex->current_select= save_current_select;
+  thd->set_matched_row_count(0/*save_matched_row_count*/);
 
   DBUG_RETURN(res);
 }

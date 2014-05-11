@@ -1292,6 +1292,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  MASTER_USE_GTID_SYM
 %token  MASTER_HEARTBEAT_PERIOD_SYM
 %token  MATCH                         /* SQL-2003-R */
+%token  MATCHED_SYM
 %token  MAX_CONNECTIONS_PER_HOUR
 %token  MAX_QUERIES_PER_HOUR
 %token  MAX_ROWS
@@ -11315,6 +11316,14 @@ limit_clause:
           {
             Lex->set_stmt_unsafe(LEX::BINLOG_STMT_UNSAFE_LIMIT);
           }
+        | LIMIT limit_options ROWS_SYM MATCHED_SYM limit_rows_matched_option
+          {
+            Lex->set_stmt_unsafe(LEX::BINLOG_STMT_UNSAFE_LIMIT);
+          }
+        | LIMIT ROWS_SYM MATCHED_SYM limit_rows_matched_option
+          {
+            Lex->set_stmt_unsafe(LEX::BINLOG_STMT_UNSAFE_LIMIT);
+          }
         ;
 
 limit_options:
@@ -11399,6 +11408,19 @@ limit_option:
           }
         ;
 
+limit_rows_matched_option:
+          limit_option
+          { 
+            SELECT_LEX *sel= Select;
+            sel->select_limit_matched= $1;
+            
+            if(!sel->select_limit){
+              sel->select_limit= new Item_int((ulonglong)$1->val_uint());
+              sel->offset_limit= 0;
+              sel->explicit_limit= 1;
+                         }
+          } 
+          
 limit_rows_option:
           limit_option
           { 

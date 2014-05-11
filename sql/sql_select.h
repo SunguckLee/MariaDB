@@ -1010,6 +1010,8 @@ public:
   /* Bitmap of tables used in the select list items */
   table_map select_list_used_tables;
   ha_rows  send_records,found_records,examined_rows,row_limit, select_limit;
+  ha_rows select_limit_matched;
+
   /**
     Used to fetch no more than given amount of rows per one
     fetch operation of server side cursor.

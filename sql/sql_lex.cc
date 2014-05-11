@@ -1891,6 +1891,7 @@ void st_select_lex::init_select()
   /* Set limit and offset to default values */
   select_limit= 0;      /* denotes the default limit = HA_POS_ERROR */
   offset_limit= 0;      /* denotes the default offset = 0 */
+  select_limit_matched = 0; // for LIMIT ROWS MATCHED n
   with_sum_func= 0;
   is_correlated= 0;
   cur_pos_in_select_list= UNDEF_POS;
@@ -2887,6 +2888,39 @@ void st_select_lex_unit::set_limit(st_select_lex *sl)
     select_limit_cnt= HA_POS_ERROR;		// no limit
 }
 
+/*
+   for LIMIT ROWS MATCHED n
+ */
+void st_select_lex_unit::set_limit_matched(st_select_lex *sl)
+{
+  ha_rows select_limit_matched_val;
+  ulonglong val;
+
+  DBUG_ASSERT(! thd->stmt_arena->is_stmt_prepare());
+  if (sl->select_limit_matched)
+  {
+	  val = sl->select_limit_matched->val_uint();
+  }
+  else
+    val= ULONGLONG_MAX;
+
+  select_limit_matched_val= (ha_rows)val;
+#ifndef BIG_TABLES
+  /*
+    Check for overflow : ha_rows can be smaller then ulonglong if
+    BIG_TABLES is off.
+    */
+  if (val != (ulonglong)select_limit_matched_val)
+	  select_limit_matched_val= ULONGLONG_MAX;
+#endif
+
+  if(!sl->select_limit && sl->select_limit_matched){
+	  select_limit_cnt = select_limit_matched_val;
+    sl->select_limit= new Item_int((ulonglong) select_limit_cnt);
+    sl->offset_limit= 0;
+    sl->explicit_limit= 1;
+  }
+}
 
 /**
   @brief Set the initial purpose of this TABLE_LIST object in the list of used
