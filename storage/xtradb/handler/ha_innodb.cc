@@ -10810,7 +10810,9 @@ UNIV_INTERN
 int
 ha_innobase::delete_table(
 /*======================*/
-	const char*	name)	/*!< in: table name */
+	const char*	name, 				/*!< in: table name */
+	void* dropped_orig_files,
+	void* dropped_renamed_files)
 {
 	ulint	name_len;
 	dberr_t	err;
@@ -10870,7 +10872,7 @@ ha_innobase::delete_table(
 
 	/* Drop the table in InnoDB */
 	err = row_drop_table_for_mysql(
-		norm_name, trx, thd_sql_command(thd) == SQLCOM_DROP_DB);
+		norm_name, trx, thd_sql_command(thd) == SQLCOM_DROP_DB, dropped_orig_files, dropped_renamed_files);
 
 
 	if (err == DB_TABLE_NOT_FOUND
@@ -10900,8 +10902,8 @@ ha_innobase::delete_table(
 				par_case_name, name, FALSE);
 #endif
 			err = row_drop_table_for_mysql(
-				par_case_name, trx,
-				thd_sql_command(thd) == SQLCOM_DROP_DB);
+				par_case_name, trx, thd_sql_command(thd) == SQLCOM_DROP_DB,
+				dropped_orig_files, dropped_renamed_files);
 		}
 	}
 

@@ -6392,7 +6392,7 @@ int ha_ndbcluster::delete_table(const char *name)
     DBUG_RETURN(HA_ERR_NO_CONNECTION);
 
   /* Call ancestor function to delete .ndb file */
-  handler::delete_table(name);
+  handler::delete_table(ndb_schema_share->table_id, name);
 
   DBUG_RETURN(delete_table(this, get_ndb(),name, m_dbname, m_tabname));
 }

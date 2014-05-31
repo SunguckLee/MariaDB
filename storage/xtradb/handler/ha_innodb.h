@@ -187,7 +187,7 @@ class ha_innobase: public handler
 	int create(const char *name, register TABLE *form,
 					HA_CREATE_INFO *create_info);
 	int truncate();
-	int delete_table(const char *name);
+	int delete_table(const char *name, void* dropped_orig_files, void* dropped_renamed_files);
 	int rename_table(const char* from, const char* to);
 	int check(THD* thd, HA_CHECK_OPT* check_opt);
 	char* update_table_comment(const char* comment);

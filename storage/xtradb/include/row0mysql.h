@@ -488,6 +488,8 @@ row_drop_table_for_mysql(
 	const char*	name,	/*!< in: table name */
 	trx_t*		trx,	/*!< in: dictionary transaction handle */
 	bool		drop_db,/*!< in: true=dropping whole database */
+	void* dropped_orig_files,
+	void* dropped_renamed_files,
 	bool		nonatomic = true)
 				/*!< in: whether it is permitted
 				to release and reacquire dict_operation_lock */

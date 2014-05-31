@@ -2402,7 +2402,7 @@ fil_op_log_parse_or_replay(
 	case MLOG_FILE_DELETE:
 		if (fil_tablespace_exists_in_mem(space_id)) {
 			dberr_t	err = fil_delete_tablespace(
-				space_id, BUF_REMOVE_FLUSH_NO_WRITE);
+				space_id, NULL, NULL, BUF_REMOVE_FLUSH_NO_WRITE);
 			ut_a(err == DB_SUCCESS);
 		}
 
@@ -2710,12 +2710,19 @@ dberr_t
 fil_delete_tablespace(
 /*==================*/
 	ulint		id,		/*!< in: space id */
+	void* dropped_orig_files,
+	void* dropped_renamed_files,
 	buf_remove_t	buf_remove)	/*!< in: specify the action to take
 					on the tables pages in the buffer
 					pool */
 {
 	char*		path = 0;
 	fil_space_t*	space = 0;
+
+	size_t len;
+	char* orig_file, *renamed_file;
+	std::list<char*> *orig_files= (std::list<char*> *) dropped_orig_files;
+	std::list<char*> *renamed_files= (std::list<char*> *) dropped_renamed_files;
 
 	ut_a(id != TRX_SYS_SPACE);
 
@@ -2804,13 +2811,46 @@ fil_delete_tablespace(
 
 	if (err != DB_SUCCESS) {
 		rw_lock_x_unlock(&space->latch);
-	} else if (!os_file_delete(innodb_file_data_key, path)
+	} else if(dropped_orig_files && dropped_renamed_files /* if tracing file rename is on, then rename files, otherwise exec delete files */){
+		len = strlen(path);
+		orig_file = new(std::nothrow) char[len + 1];
+		if(orig_file!=0){
+			strncpy(orig_file, path, len);
+			orig_file[len] = 0;
+
+			len = len + sizeof(".removed") + 30 /*ulink*/;
+			renamed_file = new(std::nothrow) char[len + 1];
+			if(renamed_file==0){
+				delete[] orig_file;
+				orig_file = 0;
+			}else{
+				struct timeval local_time;
+				gettimeofday(&local_time, NULL);
+				snprintf(renamed_file, len, "%s.%ld.%d.removed", path, local_time.tv_sec, local_time.tv_usec);
+			}
+		}
+
+		if(err==DB_SUCCESS){
+			if(!os_file_rename(innodb_file_data_key, path, renamed_file)){
+				err = DB_IO_ERROR;
+				if(orig_file!=0 && renamed_file!=0){
+					delete[] orig_file;
+					delete[] renamed_file;
+				}
+			}else{
+				orig_files->push_back(orig_file);
+				renamed_files->push_back(renamed_file);
+			}
+		}
+	}else{
+		if (!os_file_delete(innodb_file_data_key, path)
 		   && !os_file_delete_if_exists(innodb_file_data_key, path)) {
 
-		/* Note: This is because we have removed the
-		tablespace instance from the cache. */
+			/* Note: This is because we have removed the
+			tablespace instance from the cache. */
 
-		err = DB_IO_ERROR;
+			err = DB_IO_ERROR;
+		}
 	}
 
 	if (err == DB_SUCCESS) {
@@ -2881,7 +2921,7 @@ fil_discard_tablespace(
 {
 	dberr_t	err;
 
-	switch (err = fil_delete_tablespace(id, BUF_REMOVE_ALL_NO_WRITE)) {
+	switch (err = fil_delete_tablespace(id, NULL, NULL, BUF_REMOVE_ALL_NO_WRITE)) {
 	case DB_SUCCESS:
 		break;
 

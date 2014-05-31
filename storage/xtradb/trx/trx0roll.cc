@@ -649,7 +649,7 @@ trx_rollback_active(
 				"in recovery",
 				table->name, trx->table_id);
 
-			err = row_drop_table_for_mysql(table->name, trx, TRUE);
+			err = row_drop_table_for_mysql(table->name, trx, TRUE, NULL, NULL);
 			trx_commit_for_mysql(trx);
 
 			ut_a(err == DB_SUCCESS);

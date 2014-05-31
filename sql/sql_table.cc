@@ -18,6 +18,8 @@
 
 /* drop and alter of tables */
 
+#include <list>
+
 #include "sql_priv.h"
 #include "unireg.h"
 #include "debug_sync.h"
@@ -55,6 +57,8 @@
 #include "sql_show.h"
 #include "transaction.h"
 #include "sql_audit.h"
+
+using namespace std;
 
 #ifdef __WIN__
 #include <io.h>
@@ -2156,6 +2160,121 @@ static uint32 comment_length(THD *thd, uint32 comment_pos,
   return 0;
 }
 
+/**
+ * Logging removed files list
+ *
+ * RECYCLEBIN_TABLE
+ create table recyclebin_table (
+  table_id int unsigned not null auto_increment,
+  database_name varchar(64) not null,
+  table_name varchar(64) not null,
+  create_ddl varchar(5000),
+  dropped_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  status enum('waiting', 'deleting', 'recovering', 'error') not null default 'waiting',
+  error_msg varchar(1000),
+  primary key(table_id),
+  index ix_databasename_tablename (database_name, table_name)
+ ) engine=innodb DEFAULT CHARSET=utf8;
+ *
+ * RECYCLEBIN_FILE
+ CREATE TABLE `recyclebin_file` (
+  `table_id` bigint(20) NOT NULL,
+  `file_id` int(10) NOT NULL,
+  `file_type` varchar(10) NOT NULL,
+  `origin_file_path` varchar(300) NOT NULL,
+  `removed_file_path` varchar(300) NOT NULL,
+  PRIMARY KEY (`table_id`, `file_id`)
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+ */
+int mysql_rm_table_log(
+		THD *thd, uint table_id,
+		const char* database_name, size_t database_name_len,
+		const char* table_name, size_t table_name_len,
+		const char* create_ddl, size_t create_ddl_len,
+		std::list<char*>* dropped_orig_files, std::list<char*>* dropped_renamed_files){
+	DBUG_ENTER("mysql_rm_table_log");
+
+	int error;
+	TABLE_LIST tables[2];
+	TABLE* recyclebin_table, *recyclebin_file;
+
+	if(!strncmp("mysql", database_name, strlen("mysql")) &&
+			(!strncmp("recyclebin_table", table_name, strlen("recyclebin_table")) || !strncmp("recyclebin_file", table_name, strlen("recyclebin_file")))){
+		fprintf(stderr, "recyclebin_table or recyclebin_file table is dropped, drop table history can not be saved");
+		DBUG_RETURN(0);
+	}
+
+	tables[0].init_one_table(C_STRING_WITH_LEN("mysql"),
+	                         C_STRING_WITH_LEN("recyclebin_table"),
+	                         "recyclebin_table", TL_WRITE);
+	tables[1].init_one_table(C_STRING_WITH_LEN("mysql"),
+	                         C_STRING_WITH_LEN("recyclebin_file"), "recyclebin_file", TL_WRITE);
+	tables[0].next_local= tables[0].next_global= tables+1;
+
+	if (open_and_lock_tables(thd, tables, FALSE, MYSQL_LOCK_IGNORE_TIMEOUT))
+		DBUG_RETURN(1);
+
+	recyclebin_table = tables[0].table;
+	recyclebin_file = tables[1].table;
+
+	mysql_rwlock_wrlock(&LOCK_recyclebin);
+
+	recyclebin_table->use_all_columns();
+	restore_record(recyclebin_table, s->default_values);
+
+	recyclebin_table->next_number_field = recyclebin_table->field[0];
+	recyclebin_table->next_number_field_updated = TRUE;
+	recyclebin_table->auto_increment_field_not_null= FALSE;
+	recyclebin_table->next_number_field->reset();
+
+	// recyclebin_table->field[0]->store(table_id, TRUE /*Unsigned*/);
+	recyclebin_table->field[1]->store(database_name, database_name_len, system_charset_info);
+	recyclebin_table->field[2]->store(table_name, table_name_len, system_charset_info);
+	recyclebin_table->field[3]->store(create_ddl, create_ddl_len, system_charset_info);
+
+	// insert recyclebin_table
+	if ((error= recyclebin_table->file->ha_write_row(recyclebin_table->record[0])))
+	{
+		recyclebin_table->file->print_error(error, MYF(0));
+		thd->clear_error(); // just ignore error
+	}
+
+	ulonglong insert_id_for_cur_row= 0;
+	insert_id_for_cur_row = recyclebin_table->file->insert_id_for_cur_row;
+	recyclebin_table->file->ha_release_auto_increment();
+
+	// insert recyclebin_file
+	uint fidx = 1;
+	recyclebin_file->use_all_columns();
+	std::list<char*>::iterator iter_orig = dropped_orig_files->begin();
+	std::list<char*>::iterator iter_renamed = dropped_renamed_files->begin();
+	for (; iter_orig!=dropped_orig_files->end() && iter_renamed!=dropped_renamed_files->end(); ++iter_orig, ++iter_renamed){
+		char* file_extension = strrchr(*iter_orig, '.');
+		if(file_extension!=NULL) file_extension++;
+
+		restore_record(recyclebin_file, s->default_values);
+		recyclebin_file->field[0]->store(insert_id_for_cur_row, TRUE /*Unsigned*/);
+		recyclebin_file->field[1]->store(fidx++, TRUE /*Unsigned*/);
+		recyclebin_file->field[2]->store(file_extension, (file_extension==NULL) ? 0 : strlen(file_extension), system_charset_info);
+		recyclebin_file->field[3]->store(*iter_orig, strlen(*iter_orig), system_charset_info);
+		recyclebin_file->field[4]->store(*iter_renamed, strlen(*iter_renamed), system_charset_info);
+
+		// insert recyclebin_file
+		if ((error= recyclebin_file->file->ha_write_row(recyclebin_file->record[0])))
+		{
+			recyclebin_file->file->print_error(error, MYF(0));
+			thd->clear_error(); // just ignore error
+		}
+
+		delete[] *iter_orig;
+		delete[] *iter_renamed;
+	}
+
+	mysql_rwlock_unlock(&LOCK_recyclebin);
+
+	/* all ok, even if there's error, just ignore it */
+	DBUG_RETURN(0);
+}
 
 /**
   Execute the drop of a normal or temporary table.
@@ -2211,6 +2330,9 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
   bool was_view= 0;
   String built_query;
   String built_trans_tmp_query, built_non_trans_tmp_query;
+
+  std::list<char*> dropped_orig_files, dropped_renamed_files;
+
   DBUG_ENTER("mysql_rm_table_no_locks");
 
   wrong_tables.length(0);
@@ -2491,19 +2613,50 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
       *(end= path + path_length - reg_ext_length)= '\0';
 
       error= ha_delete_table(thd, table_type, path, db, table->table_name,
-                             !dont_log_query);
+                             !dont_log_query,
+                             (thd->variables.use_recyclebin) ? &dropped_orig_files : NULL,
+                             (thd->variables.use_recyclebin) ? &dropped_renamed_files : NULL);
 
       if (error == HA_ERR_ROW_IS_REFERENCED)
       {
-	/* the table is referenced by a foreign key constraint */
-	foreign_key_error= 1;
+        /* the table is referenced by a foreign key constraint */
+        foreign_key_error= 1;
       }
       if (!error || error == ENOENT || error == HA_ERR_NO_SUCH_TABLE)
       {
-        int frm_delete_error, trigger_drop_error= 0;
-	/* Delete the table definition file */
-	strmov(end,reg_ext);
-        frm_delete_error= mysql_file_delete(key_file_frm, path, MYF(MY_WME));
+        int frm_delete_error=0, trigger_drop_error= 0;
+        /* Delete the table definition file */
+        strmov(end,reg_ext);
+
+        if(thd->variables.use_recyclebin){
+          size_t len;
+          char* orig_file, *renamed_file;
+          len = strlen(path);
+          orig_file = new(std::nothrow) char[len + 1];
+          if(orig_file!=0){
+            strncpy(orig_file, path, len);
+            orig_file[len] = 0;
+            len = len + sizeof(".removed") + 30 /*ulink*/;
+            renamed_file = new(std::nothrow) char[len + 1];
+            if(renamed_file==0){
+              delete[] orig_file;
+              orig_file = 0;
+            }else{
+              struct timeval local_time;
+              gettimeofday(&local_time, NULL);
+              snprintf(renamed_file, len, "%s.%ld.%d.removed", path, local_time.tv_sec, local_time.tv_usec);
+            }
+          }
+
+          if(renamed_file!=0 && renamed_file!=0){
+            dropped_orig_files.push_back(orig_file);
+            dropped_renamed_files.push_back(renamed_file);
+            frm_delete_error = mysql_file_rename(key_file_frm, path, renamed_file, MYF(MY_WME));
+          }
+        }else{
+            frm_delete_error= mysql_file_delete(key_file_frm, path, MYF(MY_WME));
+        }
+
         if (frm_delete_error)
           frm_delete_error= my_errno;
         else
@@ -2514,12 +2667,28 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
         }
 
         if (trigger_drop_error ||
-            (frm_delete_error && frm_delete_error != ENOENT))
+            (frm_delete_error && frm_delete_error != ENOENT)){
           error= 1;
+
+          // release all allocation for dropped_orig_files and dropped_renamed_files list.
+          std::list<char*>::iterator iter_orig = dropped_orig_files.begin();
+          std::list<char*>::iterator iter_renamed = dropped_renamed_files.begin();
+          for (; iter_orig!=dropped_orig_files.end() && iter_renamed!=dropped_renamed_files.end(); ++iter_orig, ++iter_renamed){
+            delete[] *iter_orig;
+            delete[] *iter_renamed;
+          }
+        }
         else if (!frm_delete_error || !error || if_exists)
         {
           error= 0;
           thd->clear_error();
+
+          if(thd->variables.use_recyclebin){
+            // Logging dropped table info, List entry will be freed in mysql_rm_table_log()
+            mysql_rm_table_log(thd, table->table_id, db, db_length,
+                 table->table_name, strlen(table->table_name),
+                 "", 0, &dropped_orig_files, &dropped_renamed_files);
+          }
         }
       }
       non_tmp_error= error ? TRUE : non_tmp_error;
@@ -2527,7 +2696,7 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
     if (error)
     {
       if (wrong_tables.length())
-	wrong_tables.append(',');
+        wrong_tables.append(',');
       wrong_tables.append(db);
       wrong_tables.append('.');
       wrong_tables.append(table->table_name);
@@ -2724,6 +2893,9 @@ bool quick_rm_table(THD *thd, handlerton *base, const char *db,
 {
   char path[FN_REFLEN + 1];
   bool error= 0;
+
+  std::list<char*> dropped_orig_files, dropped_renamed_files;
+
   DBUG_ENTER("quick_rm_table");
 
   uint path_length= build_table_filename(path, sizeof(path) - 1,
@@ -2740,7 +2912,7 @@ bool quick_rm_table(THD *thd, handlerton *base, const char *db,
     delete file;
   }
   if (!(flags & (FRM_ONLY|NO_HA_TABLE)))
-    error|= ha_delete_table(current_thd, base, path, db, table_name, 0);
+    error|= ha_delete_table(current_thd, base, path, db, table_name, 0, &dropped_orig_files, &dropped_renamed_files);
 
   if (likely(error == 0))
   {

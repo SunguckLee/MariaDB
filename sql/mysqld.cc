@@ -716,6 +716,7 @@ mysql_mutex_t LOCK_prepared_stmt_count;
 mysql_mutex_t LOCK_des_key_file;
 #endif
 mysql_rwlock_t LOCK_grant, LOCK_sys_init_connect, LOCK_sys_init_slave;
+mysql_rwlock_t LOCK_recyclebin;
 mysql_rwlock_t LOCK_system_variables_hash;
 mysql_cond_t COND_thread_count;
 pthread_t signal_thread;

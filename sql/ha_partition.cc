@@ -750,7 +750,7 @@ create_error:
     (void) (*file)->ha_delete_table((const char*) name_buff);
     name_buffer_ptr= strend(name_buffer_ptr) + 1;
   }
-  handler::delete_table(name);
+  handler::delete_table(name, NULL, NULL);
   DBUG_RETURN(error);
 }
 

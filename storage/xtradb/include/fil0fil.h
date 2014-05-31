@@ -440,6 +440,8 @@ dberr_t
 fil_delete_tablespace(
 /*==================*/
 	ulint		id,		/*!< in: space id */
+	void* dropped_orig_files,
+	void* dropped_renamed_files,
 	buf_remove_t	buf_remove);	/*!< in: specify the action to take
 					on the tables pages in the buffer
 					pool */

@@ -2664,7 +2664,7 @@ public:
   int ha_enable_indexes(uint mode);
   int ha_discard_or_import_tablespace(my_bool discard);
   int ha_rename_table(const char *from, const char *to);
-  int ha_delete_table(const char *name);
+  int ha_delete_table(const char *name, void* dropped_orig_files=NULL, void* dropped_renamed_files=NULL);
   void ha_drop_table(const char *name);
 
   int ha_create(const char *name, TABLE *form, HA_CREATE_INFO *info);
@@ -3698,7 +3698,7 @@ protected:
     Delete a table in the engine. Called for base as well as temporary
     tables.
   */
-  virtual int delete_table(const char *name);
+  virtual int delete_table(const char *name, void* dropped_orig_files=NULL, void* dropped_renamed_files=NULL);
 
 private:
   /* Private helpers */
@@ -3987,7 +3987,8 @@ int ha_create_table(THD *thd, const char *path,
                     const char *db, const char *table_name,
                     HA_CREATE_INFO *create_info, LEX_CUSTRING *frm);
 int ha_delete_table(THD *thd, handlerton *db_type, const char *path,
-                    const char *db, const char *alias, bool generate_warning);
+                    const char *db, const char *alias, bool generate_warning,
+                    void* dropped_orig_files, void* dropped_renamed_files);
 
 /* statistics and info */
 bool ha_show_status(THD *thd, handlerton *db_type, enum ha_stat_type stat);

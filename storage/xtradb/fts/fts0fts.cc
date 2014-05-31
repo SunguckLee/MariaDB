@@ -1501,7 +1501,7 @@ fts_drop_table(
 		/* Pass nonatomic=false (dont allow data dict unlock),
 		because the transaction may hold locks on SYS_* tables from
 		previous calls to fts_drop_table(). */
-		error = row_drop_table_for_mysql(table_name, trx, true, false);
+		error = row_drop_table_for_mysql(table_name, trx, true, NULL, NULL, false); // Matt :: Fts drop table
 
 		if (error != DB_SUCCESS) {
 			ib_logf(IB_LOG_LEVEL_ERROR,
@@ -1917,7 +1917,7 @@ func_exit:
 
 		trx_rollback_to_savepoint(trx, NULL);
 
-		row_drop_table_for_mysql(table->name, trx, FALSE);
+		row_drop_table_for_mysql(table->name, trx, FALSE, NULL, NULL); // Matt :: Fts drop table
 
 		trx->error_state = DB_SUCCESS;
 	}
@@ -2064,7 +2064,7 @@ fts_create_index_tables_low(
 
 		trx_rollback_to_savepoint(trx, NULL);
 
-		row_drop_table_for_mysql(table_name, trx, FALSE);
+		row_drop_table_for_mysql(table_name, trx, FALSE, NULL, NULL); // Matt :: Fts drop table
 
 		trx->error_state = DB_SUCCESS;
 	}

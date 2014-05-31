@@ -1463,7 +1463,7 @@ dict_table_rename_in_cache(
 			filepath = fil_make_ibd_name(table->name, false);
 		}
 
-		fil_delete_tablespace(table->space, BUF_REMOVE_ALL_NO_WRITE);
+		fil_delete_tablespace(table->space, NULL, NULL, BUF_REMOVE_ALL_NO_WRITE);
 
 		/* Delete any temp file hanging around. */
 		if (os_file_status(filepath, &exists, &type)

@@ -20,6 +20,8 @@
   Handler-calling-functions
 */
 
+#include <list>
+
 #include "sql_priv.h"
 #include "unireg.h"
 #include "rpl_handler.h"
@@ -49,6 +51,8 @@
 #ifdef WITH_ARIA_STORAGE_ENGINE
 #include "../storage/maria/ha_maria.h"
 #endif
+
+using namespace std;
 
 /*
   While we have legacy_db_type, we have this array to
@@ -2252,7 +2256,8 @@ handle_condition(THD *,
   The .frm file will be deleted only if we return 0 or ENOENT
 */
 int ha_delete_table(THD *thd, handlerton *table_type, const char *path,
-                    const char *db, const char *alias, bool generate_warning)
+                    const char *db, const char *alias, bool generate_warning,
+                    void* dropped_orig_files, void* dropped_renamed_files)
 {
   handler *file;
   char tmp_path[FN_REFLEN];
@@ -2271,7 +2276,7 @@ int ha_delete_table(THD *thd, handlerton *table_type, const char *path,
   dummy_table.s= &dummy_share;
 
   path= get_canonical_filename(file, path, tmp_path);
-  if ((error= file->ha_delete_table(path)) && generate_warning)
+  if ((error= file->ha_delete_table(path, dropped_orig_files, dropped_renamed_files)) && generate_warning)
   {
     /*
       Because file->print_error() use my_error() to generate the error message
@@ -3738,12 +3743,17 @@ uint handler::get_dup_key(int error)
   @retval
     !0  Error
 */
-int handler::delete_table(const char *name)
+int handler::delete_table(const char *name, void* dropped_orig_files, void* dropped_renamed_files)
 {
   int saved_error= 0;
   int error= 0;
   int enoent_or_zero;
   char buff[FN_REFLEN];
+
+  size_t len;
+  char* orig_file, *renamed_file;
+  std::list<char*> *orig_files= (std::list<char*> *) dropped_orig_files;
+  std::list<char*> *renamed_files= (std::list<char*> *) dropped_renamed_files;
 
   if (ht->discover_table)
     enoent_or_zero= 0; // the table may not exist in the engine, it's ok
@@ -3753,7 +3763,33 @@ int handler::delete_table(const char *name)
   for (const char **ext=bas_ext(); *ext ; ext++)
   {
     fn_format(buff, name, "", *ext, MY_UNPACK_FILENAME|MY_APPEND_EXT);
-    if (mysql_file_delete_with_symlink(key_file_misc, buff, MYF(0)))
+    int res = 0;
+    if(dropped_orig_files && dropped_renamed_files){
+      len = strlen(buff);
+      orig_file = new(std::nothrow) char[len + 1];
+      if(orig_file==0){
+        return ER_OUTOFMEMORY;
+      }else{
+        strncpy(orig_file, buff, len);
+        orig_file[len] = 0;
+        len = len + sizeof(".removed") + 30 /*ulink*/;
+        renamed_file = new(std::nothrow) char[len + 1];
+        if(renamed_file==0){
+          delete[] orig_file;
+          return ER_OUTOFMEMORY;
+        }else{
+          struct timeval local_time;
+          gettimeofday(&local_time, NULL);
+          snprintf(renamed_file, len, "%s.%ld.%d.removed", buff, local_time.tv_sec, local_time.tv_usec);
+        }
+      }
+
+      res = mysql_file_rename_with_symlink(key_file_misc, buff, renamed_file, MYF(0));
+    }else{
+      res = mysql_file_delete_with_symlink(key_file_misc, buff, MYF(0));
+    }
+
+    if (res)
     {
       if (my_errno != ENOENT)
       {
@@ -3761,14 +3797,21 @@ int handler::delete_table(const char *name)
           If error on the first existing file, return the error.
           Otherwise delete as much as possible.
         */
-        if (enoent_or_zero)
+        if (enoent_or_zero){
+          delete[] orig_file;
+          delete[] renamed_file;
           return my_errno;
-	saved_error= my_errno;
+        }
+        saved_error= my_errno;
       }
     }
     else
+    {
       enoent_or_zero= 0;                        // No error for ENOENT
+    }
     error= enoent_or_zero;
+    orig_files->push_back(orig_file);
+    renamed_files->push_back(renamed_file);
   }
   return saved_error ? saved_error : error;
 }
@@ -3801,7 +3844,7 @@ int handler::rename_table(const char * from, const char * to)
 void handler::drop_table(const char *name)
 {
   ha_close();
-  delete_table(name);
+  delete_table(name, NULL, NULL); // Matt :: Need to check when drop_table function is called
 }
 
 
@@ -4204,10 +4247,10 @@ handler::ha_rename_table(const char *from, const char *to)
 */
 
 int
-handler::ha_delete_table(const char *name)
+handler::ha_delete_table(const char *name, void* dropped_orig_files, void* dropped_renamed_files)
 {
   mark_trx_read_write();
-  return delete_table(name);
+  return delete_table(name, dropped_orig_files, dropped_renamed_files);
 }
 
 

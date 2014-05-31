@@ -567,6 +567,7 @@ typedef struct system_variables
   my_bool binlog_annotate_row_events;
   my_bool binlog_direct_non_trans_update;
   my_bool sql_log_bin;
+  my_bool use_recyclebin;
   ulong completion_type;
   ulong query_cache_type;
   ulong tx_isolation;

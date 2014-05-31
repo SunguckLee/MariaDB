@@ -155,6 +155,8 @@
 #define OPTION_ALLOW_BATCH              (1ULL << 36) // THD, intern (slave)
 #define OPTION_SKIP_REPLICATION         (1ULL << 37) // THD, user
 
+#define OPTION_USE_RECYCLEBIN           (1ULL << 38) // THD, user, binlog
+
 /*
   Check how many bytes are available on buffer.
 

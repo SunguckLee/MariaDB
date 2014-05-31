@@ -1359,7 +1359,7 @@ dict_create_or_check_foreign_constraint_tables(void)
 		ib_logf(IB_LOG_LEVEL_WARN,
 			"Dropping incompletely created "
 			"SYS_FOREIGN table.");
-		row_drop_table_for_mysql("SYS_FOREIGN", trx, TRUE);
+		row_drop_table_for_mysql("SYS_FOREIGN", trx, TRUE, NULL, NULL);
 	}
 
 	if (sys_foreign_cols_err == DB_CORRUPTION) {
@@ -1367,7 +1367,7 @@ dict_create_or_check_foreign_constraint_tables(void)
 			"Dropping incompletely created "
 			"SYS_FOREIGN_COLS table.");
 
-		row_drop_table_for_mysql("SYS_FOREIGN_COLS", trx, TRUE);
+		row_drop_table_for_mysql("SYS_FOREIGN_COLS", trx, TRUE, NULL, NULL);
 	}
 
 	ib_logf(IB_LOG_LEVEL_WARN,
@@ -1421,8 +1421,8 @@ dict_create_or_check_foreign_constraint_tables(void)
 		ut_ad(err == DB_OUT_OF_FILE_SPACE
 		      || err == DB_TOO_MANY_CONCURRENT_TRXS);
 
-		row_drop_table_for_mysql("SYS_FOREIGN", trx, TRUE);
-		row_drop_table_for_mysql("SYS_FOREIGN_COLS", trx, TRUE);
+		row_drop_table_for_mysql("SYS_FOREIGN", trx, TRUE, NULL, NULL);
+		row_drop_table_for_mysql("SYS_FOREIGN_COLS", trx, TRUE, NULL, NULL);
 
 		if (err == DB_OUT_OF_FILE_SPACE) {
 			err = DB_MUST_GET_MORE_FILE_SPACE;
@@ -1711,7 +1711,7 @@ dict_create_or_check_sys_tablespace(void)
 		ib_logf(IB_LOG_LEVEL_WARN,
 			"Dropping incompletely created "
 			"SYS_TABLESPACES table.");
-		row_drop_table_for_mysql("SYS_TABLESPACES", trx, TRUE);
+		row_drop_table_for_mysql("SYS_TABLESPACES", trx, TRUE, NULL, NULL);
 	}
 
 	if (sys_datafiles_err == DB_CORRUPTION) {
@@ -1719,7 +1719,7 @@ dict_create_or_check_sys_tablespace(void)
 			"Dropping incompletely created "
 			"SYS_DATAFILES table.");
 
-		row_drop_table_for_mysql("SYS_DATAFILES", trx, TRUE);
+		row_drop_table_for_mysql("SYS_DATAFILES", trx, TRUE, NULL, NULL);
 	}
 
 	ib_logf(IB_LOG_LEVEL_INFO,
@@ -1755,8 +1755,8 @@ dict_create_or_check_sys_tablespace(void)
 		ut_a(err == DB_OUT_OF_FILE_SPACE
 		     || err == DB_TOO_MANY_CONCURRENT_TRXS);
 
-		row_drop_table_for_mysql("SYS_TABLESPACES", trx, TRUE);
-		row_drop_table_for_mysql("SYS_DATAFILES", trx, TRUE);
+		row_drop_table_for_mysql("SYS_TABLESPACES", trx, TRUE, NULL, NULL);
+		row_drop_table_for_mysql("SYS_DATAFILES", trx, TRUE, NULL, NULL);
 
 		if (err == DB_OUT_OF_FILE_SPACE) {
 			err = DB_MUST_GET_MORE_FILE_SPACE;

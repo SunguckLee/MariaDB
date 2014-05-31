@@ -2310,7 +2310,7 @@ err_exit:
 
 			dict_table_close(table, TRUE, FALSE);
 
-			row_drop_table_for_mysql(table->name, trx, FALSE);
+			row_drop_table_for_mysql(table->name, trx, FALSE, NULL, NULL);
 
 			if (commit) {
 				trx_commit_for_mysql(trx);
@@ -2326,7 +2326,7 @@ err_exit:
 
 		if (table->space
 		    && fil_delete_tablespace(
-			    table->space,
+			    table->space, NULL, NULL,
 			    BUF_REMOVE_FLUSH_NO_WRITE)
 		    != DB_SUCCESS) {
 
@@ -2470,7 +2470,7 @@ error_handling:
 
 		trx_rollback_to_savepoint(trx, NULL);
 
-		row_drop_table_for_mysql(table_name, trx, FALSE);
+		row_drop_table_for_mysql(table_name, trx, FALSE, NULL, NULL);
 
 		trx_commit_for_mysql(trx);
 
@@ -2547,8 +2547,7 @@ row_table_add_foreign_constraints(
 
 		trx_rollback_to_savepoint(trx, NULL);
 
-		row_drop_table_for_mysql(name, trx, FALSE);
-
+		row_drop_table_for_mysql(name, trx, FALSE, NULL, NULL);
 		trx_commit_for_mysql(trx);
 
 		trx->error_state = DB_SUCCESS;
@@ -2588,8 +2587,8 @@ row_drop_table_for_mysql_in_background(
 
 	/* Try to drop the table in InnoDB */
 
-	error = row_drop_table_for_mysql(name, trx, FALSE);
-
+	error = row_drop_table_for_mysql(name, trx, FALSE, NULL, NULL);
+    
 	/* Flush the log to reduce probability that the .frm files and
 	the InnoDB data dictionary get out-of-sync if the user runs
 	with innodb_flush_log_at_trx_commit = 0 */
@@ -3671,6 +3670,8 @@ row_drop_table_for_mysql(
 	const char*	name,	/*!< in: table name */
 	trx_t*		trx,	/*!< in: transaction handle */
 	bool		drop_db,/*!< in: true=dropping whole database */
+	void* 		dropped_orig_files,
+	void* 		dropped_renamed_files,
 	bool		nonatomic)
 				/*!< in: whether it is permitted
 				to release and reacquire dict_operation_lock */
@@ -4238,7 +4239,7 @@ check_next_foreign:
 				fil_delete_file(filepath);
 
 			} else if (fil_delete_tablespace(
-					space_id,
+					space_id, dropped_orig_files, dropped_renamed_files,
 					BUF_REMOVE_FLUSH_NO_WRITE)
 				   != DB_SUCCESS) {
 				fprintf(stderr,
@@ -4403,7 +4404,7 @@ row_mysql_drop_temp_tables(void)
 		table = dict_table_get_low(table_name);
 
 		if (table) {
-			row_drop_table_for_mysql(table_name, trx, FALSE);
+			row_drop_table_for_mysql(table_name, trx, FALSE, NULL, NULL);
 			trx_commit_for_mysql(trx);
 		}
 
@@ -4572,7 +4573,7 @@ loop:
 			goto loop;
 		}
 
-		err = row_drop_table_for_mysql(table_name, trx, TRUE);
+		err = row_drop_table_for_mysql(table_name, trx, TRUE, NULL, NULL);
 		trx_commit_for_mysql(trx);
 
 		if (err != DB_SUCCESS) {
