@@ -2160,6 +2160,53 @@ static uint32 comment_length(THD *thd, uint32 comment_pos,
   return 0;
 }
 
+/*
+  Return CREATE command for table or view
+
+  @param thd	     Thread handler
+  @param table_list  Table / view
+
+  @return length of screate script ddl
+
+  @notes
+  table_list->db and table_list->table_name are kept unchanged to
+  not cause problems with SP.
+*/
+
+size_t
+mysql_show_rm_table_create(THD *thd, TABLE_LIST *table_list, char* buff, size_t buff_length)
+{
+  size_t ddl_length = 0;
+  String buffer(buff, buff_length, system_charset_info);
+
+  if(table_list->view || is_temporary_table(table_list)){ // We don't need create script for VIEW or temporary table
+    return 0;
+  }
+
+  uint counter;
+  bool open_error=
+    open_tables(thd, &table_list, &counter,
+                MYSQL_OPEN_FORCE_SHARED_HIGH_PRIO_MDL);
+  if (open_error && (thd->killed || thd->is_error()))
+    goto exit;
+
+  DBUG_ASSERT(table_list->table!=NULL); // Table must be opened
+
+  buffer.length(0);
+  if (store_create_info(thd, table_list, &buffer, NULL, FALSE /* show_database */, FALSE))
+    goto exit;
+
+  ddl_length = buffer.length();
+  // protocol->store(buffer.ptr(), buffer.length(), buffer.charset());
+
+exit:
+  close_thread_tables(thd);
+  /* Release any metadata locks taken during SHOW CREATE. */
+  // We don't release mdl lock here.
+  //thd->mdl_context.rollback_to_savepoint(mdl_savepoint);
+  return ddl_length;
+}
+
 /**
  * Logging removed files list
  *
@@ -2168,10 +2215,10 @@ static uint32 comment_length(THD *thd, uint32 comment_pos,
   table_id int unsigned not null auto_increment,
   database_name varchar(64) not null,
   table_name varchar(64) not null,
-  create_ddl varchar(5000),
+  create_ddl varchar(5000) not null,
   dropped_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   status enum('waiting', 'deleting', 'recovering', 'error') not null default 'waiting',
-  error_msg varchar(1000),
+  error_msg varchar(1000) not null,
   primary key(table_id),
   index ix_databasename_tablename (database_name, table_name)
  ) engine=innodb DEFAULT CHARSET=utf8;
@@ -2190,13 +2237,21 @@ int mysql_rm_table_log(
 		THD *thd, uint table_id,
 		const char* database_name, size_t database_name_len,
 		const char* table_name, size_t table_name_len,
-		const char* create_ddl, size_t create_ddl_len,
+		const char* create_table, size_t create_table_len,
 		std::list<char*>* dropped_orig_files, std::list<char*>* dropped_renamed_files){
 	DBUG_ENTER("mysql_rm_table_log");
 
 	int error;
 	TABLE_LIST tables[2];
 	TABLE* recyclebin_table, *recyclebin_file;
+
+	std::list<char*>::iterator iter_orig;
+	std::list<char*>::iterator iter_renamed;
+	my_hrtime_t current_time= { hrtime_from_time(thd->start_time) + thd->start_time_sec_part};
+
+	// insert recyclebin_file
+	uint fidx = 1;
+	ulonglong insert_id_for_cur_row= 0;
 
 	if(!strncmp("mysql", database_name, strlen("mysql")) &&
 			(!strncmp("recyclebin_table", table_name, strlen("recyclebin_table")) || !strncmp("recyclebin_file", table_name, strlen("recyclebin_file")))){
@@ -2219,18 +2274,42 @@ int mysql_rm_table_log(
 
 	mysql_rwlock_wrlock(&LOCK_recyclebin);
 
-	recyclebin_table->use_all_columns();
+	/* check that all columns exist */
+	if (recyclebin_table->s->fields != 7){
+		fprintf(stderr, "recyclebin_table columns must be 7, current table has %d columns\n", recyclebin_table->s->fields);
+		goto err;
+	}
+
+	if (recyclebin_file->s->fields != 5){
+		fprintf(stderr, "recyclebin_table columns must be 5, current table has %d columns\n", recyclebin_file->s->fields);
+		goto err;
+	}
+
+	if(recyclebin_table->field[4]->type() != MYSQL_TYPE_TIMESTAMP){
+		fprintf(stderr, "recyclebin_table 5th column is not a timestamp\n");
+		goto err;
+	}
+
+	recyclebin_table->use_all_columns(); // Without this call, there's assertion fail during table->filed[n]->store()
 	restore_record(recyclebin_table, s->default_values);
+	// recyclebin_table->update_default_fields();
 
 	recyclebin_table->next_number_field = recyclebin_table->field[0];
 	recyclebin_table->next_number_field_updated = TRUE;
 	recyclebin_table->auto_increment_field_not_null= FALSE;
 	recyclebin_table->next_number_field->reset();
 
-	// recyclebin_table->field[0]->store(table_id, TRUE /*Unsigned*/);
+	// Value is not stored to field if column is NULLABLE.
+	// So I changed all column as NOT NULL.
 	recyclebin_table->field[1]->store(database_name, database_name_len, system_charset_info);
 	recyclebin_table->field[2]->store(table_name, table_name_len, system_charset_info);
-	recyclebin_table->field[3]->store(create_ddl, create_ddl_len, system_charset_info);
+	recyclebin_table->field[3]->store(create_table, create_table_len, system_charset_info);
+
+
+	((Field_timestamp*) recyclebin_table->field[4])->store_TIME(
+	             hrtime_to_my_time(current_time), hrtime_sec_part(current_time));
+
+	recyclebin_table->field[6]->store("None", 4, system_charset_info);
 
 	// insert recyclebin_table
 	if ((error= recyclebin_table->file->ha_write_row(recyclebin_table->record[0])))
@@ -2239,15 +2318,12 @@ int mysql_rm_table_log(
 		thd->clear_error(); // just ignore error
 	}
 
-	ulonglong insert_id_for_cur_row= 0;
 	insert_id_for_cur_row = recyclebin_table->file->insert_id_for_cur_row;
 	recyclebin_table->file->ha_release_auto_increment();
 
-	// insert recyclebin_file
-	uint fidx = 1;
 	recyclebin_file->use_all_columns();
-	std::list<char*>::iterator iter_orig = dropped_orig_files->begin();
-	std::list<char*>::iterator iter_renamed = dropped_renamed_files->begin();
+	iter_orig = dropped_orig_files->begin();
+	iter_renamed = dropped_renamed_files->begin();
 	for (; iter_orig!=dropped_orig_files->end() && iter_renamed!=dropped_renamed_files->end(); ++iter_orig, ++iter_renamed){
 		char* file_extension = strrchr(*iter_orig, '.');
 		if(file_extension!=NULL) file_extension++;
@@ -2265,11 +2341,15 @@ int mysql_rm_table_log(
 			recyclebin_file->file->print_error(error, MYF(0));
 			thd->clear_error(); // just ignore error
 		}
+	}
 
+err:
+	iter_orig = dropped_orig_files->begin();
+	iter_renamed = dropped_renamed_files->begin();
+	for (; iter_orig!=dropped_orig_files->end() && iter_renamed!=dropped_renamed_files->end(); ++iter_orig, ++iter_renamed){
 		delete[] *iter_orig;
 		delete[] *iter_renamed;
 	}
-
 	mysql_rwlock_unlock(&LOCK_recyclebin);
 
 	/* all ok, even if there's error, just ignore it */
@@ -2331,6 +2411,8 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
   String built_query;
   String built_trans_tmp_query, built_non_trans_tmp_query;
 
+  size_t create_table_length = 0;
+  char create_table[5000];
   std::list<char*> dropped_orig_files, dropped_renamed_files;
 
   DBUG_ENTER("mysql_rm_table_no_locks");
@@ -2418,6 +2500,12 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
     DBUG_PRINT("table", ("table_l: '%s'.'%s'  table: 0x%lx  s: 0x%lx",
                          table->db, table->table_name, (long) table->table,
                          table->table ? (long) table->table->s : (long) -1));
+
+    // Get create table script
+    if(thd->variables.use_recyclebin){
+      create_table_length = mysql_show_rm_table_create(thd, table, create_table, 5000);
+      create_table[create_table_length] = 0;
+    }
 
     /*
       If we are in locked tables mode and are dropping a temporary table,
@@ -2687,7 +2775,7 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
             // Logging dropped table info, List entry will be freed in mysql_rm_table_log()
             mysql_rm_table_log(thd, table->table_id, db, db_length,
                  table->table_name, strlen(table->table_name),
-                 "", 0, &dropped_orig_files, &dropped_renamed_files);
+                 create_table, create_table_length, &dropped_orig_files, &dropped_renamed_files);
           }
         }
       }

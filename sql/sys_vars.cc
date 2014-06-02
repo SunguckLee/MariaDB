@@ -3507,11 +3507,10 @@ static Sys_var_bit Sys_unique_checks(
        REVERSE(OPTION_RELAXED_UNIQUE_CHECKS),
        DEFAULT(TRUE), NO_MUTEX_GUARD, IN_BINLOG);
 
-static Sys_var_bit Sys_use_recyclebin(
-       "use_recyclebin", "use_recyclebin",
-       SESSION_VAR(option_bits), NO_CMD_LINE,
-       REVERSE(OPTION_USE_RECYCLEBIN),
-       DEFAULT(FALSE), NO_MUTEX_GUARD, IN_BINLOG);
+static Sys_var_mybool Sys_use_recyclebin(
+       "use_recyclebin",
+       "Whether using recycle bin during table drop",
+       SESSION_VAR(use_recyclebin), CMD_LINE(OPT_ARG), DEFAULT(0));
 
 #ifdef ENABLED_PROFILING
 static Sys_var_bit Sys_profiling(
